@@ -22,13 +22,12 @@ Admin-only module that lets you:
 ### Recommended UI (reactive)
 Open: `http://localhost:5384/manage/prompt-editor` (or `https://<your-domain>/manage/prompt-editor`)
 
-### Legacy module config UI (non-reactive)
-1) Set `Editing Source` = `Live`.
-2) Pick `Language` → `Category Folder` → `Template`.
-3) Click **Save** to load it into the editor.
-4) Edit and click **Save** again to write to disk.
+Tip: the Voxta Modules page shows a green **Help** button on the PromptEditor module card that opens `/manage/prompt-editor` in a new tab.
 
-Note: Voxta’s module configuration UI doesn’t live-refresh dependent dropdowns/content. After changing Language/Category/Template, click **Save** and then reload the config page to see updated lists/content.
+### Module config UI (quick collection actions)
+The module configuration page no longer includes template editing. It only contains quick actions for creating/applying/restoring collections (language-scoped).
+
+Note: Voxta `InvokeAction` buttons use **saved** values only. If an action depends on inputs (collection name, language), click **Save** first, then click the button.
 
 ### Using collections (recommended)
 1) Click **Create Collection from Live** (set `New Collection Name`, **Save**, then click the button).
