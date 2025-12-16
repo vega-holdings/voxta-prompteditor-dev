@@ -25,7 +25,7 @@ Admin-only module that lets you:
 3) Click **Save** to load it into the editor.
 4) Edit and click **Save** again to write to disk.
 
-Note: if you change selection and click **Save**, PromptEditor saves the currently loaded template and then loads the newly-selected one. Avoid editing before loading a new selection.
+Note: Voxta’s module configuration UI doesn’t live-refresh dependent dropdowns/content. After changing Language/Category/Template, click **Save** and then reload the config page to see updated lists/content.
 
 ### Using collections (recommended)
 1) Click **Create Collection from Live** (set `New Collection Name`, **Save**, then click the button).

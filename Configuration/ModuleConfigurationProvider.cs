@@ -160,6 +160,7 @@ public class ModuleConfigurationProvider(
             $"Category: {(string.IsNullOrWhiteSpace(selectedCategory) ? "(none)" : selectedCategory)}",
             $"Template: {(string.IsNullOrWhiteSpace(selectedTemplate) ? "(none)" : selectedTemplate)}",
             $"Loaded matches selection: {loadedMatchesSelection}",
+            "UI note: Voxta module config doesn’t live-refresh dependent dropdowns/content. After changing Language/Category/Template (or creating a collection), click Save then reload this config page to see updated lists/content.",
         };
 
         if (source == EditingSourceCollection)
@@ -245,7 +246,7 @@ public class ModuleConfigurationProvider(
             Name = TemplateText,
             Label = "Template Content",
             Rows = 26,
-            Text = "Change selection, then Save once to load it into the editor. Edit, then Save again to write changes to disk. Tip: don’t edit before loading a new selection.",
+            Text = "Change selection, click Save once to load it, then reload this page to see the loaded content. Edit, Save to write changes. Tip: don’t edit before loading a new selection.",
             Advanced = false,
         };
 
@@ -265,7 +266,7 @@ public class ModuleConfigurationProvider(
         }
 
         return FormBuilder.Build(
-            FormTitleField.Create("Prompt Editor (alpha)", "Save writes the currently loaded template. If you changed selection, Save also loads the newly-selected template into the editor.", false),
+            FormTitleField.Create("Prompt Editor (alpha)", "Voxta UI doesn’t live-update module config forms. After changing dropdowns or using action buttons, click Save then reload this page. Save writes the loaded template; if selection changed, Save loads the newly-selected template.", false),
             FormDocumentationField.Create(string.Join(Environment.NewLine, status), "Status"),
             sourceField,
             collectionField,
