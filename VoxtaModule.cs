@@ -23,7 +23,7 @@ public class VoxtaModule : IVoxtaModule
             ServiceName = ServiceName,
             Label = "Prompt Editor (Core System) [alpha]",
             Notes = "Admin-only editor for system Scriban prompts under Resources/Prompts/Default, with an originals backup and swappable prompt collections.",
-            HelpLink = "https://doc.voxta.ai/",
+            HelpLink = "/manage/prompt-editor",
             Experimental = true,
             Single = true,
             CanBeInstalledByAdminsOnly = true,
