@@ -266,7 +266,7 @@ public class ModuleConfigurationProvider(
         }
 
         return FormBuilder.Build(
-            FormTitleField.Create("Prompt Editor (alpha)", "Voxta UI doesn’t live-update module config forms. After changing dropdowns or using action buttons, click Save then reload this page. Save writes the loaded template; if selection changed, Save loads the newly-selected template.", false),
+            FormTitleField.Create("Prompt Editor (alpha)", "Recommended UI: /manage/prompt-editor (reactive). This module config form is limited by Voxta’s non-reactive config UI. If you use this page: after changing dropdowns or using action buttons, click Save then reload. Save writes the loaded template; if selection changed, Save loads the newly-selected template.", false),
             FormDocumentationField.Create(string.Join(Environment.NewLine, status), "Status"),
             sourceField,
             collectionField,

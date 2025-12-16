@@ -1,8 +1,11 @@
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
+using Microsoft.Extensions.DependencyInjection;
 using JetBrains.Annotations;
 using Voxta.Abstractions.Modules;
 using Voxta.Abstractions.Registration;
 using Voxta.Model.Shared;
 using Voxta.Modules.PromptEditor.Configuration;
+using Voxta.Modules.PromptEditor.Controllers;
 using Voxta.Modules.PromptEditor.Services;
 
 namespace Voxta.Modules.PromptEditor;
@@ -38,6 +41,8 @@ public class VoxtaModule : IVoxtaModule
         });
 
         builder.AddChatAugmentationsService<PromptEditorChatAugmentationsService>(ServiceName);
+
+        builder.Services.AddSingleton<PromptEditorStore>();
+        builder.Services.AddControllers().PartManager.ApplicationParts.Add(new AssemblyPart(typeof(PromptEditorApiController).Assembly));
     }
 }
-

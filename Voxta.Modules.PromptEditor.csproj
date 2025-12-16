@@ -11,5 +11,8 @@
     <PackageReference Include="Voxta.Sdk.Modules" Version="1.1.4" />
   </ItemGroup>
 
-</Project>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 
+</Project>

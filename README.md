@@ -19,7 +19,10 @@ Admin-only module that lets you:
   - Collections: `Data/PromptEditor/Collections/<collection>/<lang>/...`
 
 ## Usage
-### Editing Live prompts
+### Recommended UI (reactive)
+Open: `http://localhost:5384/manage/prompt-editor` (or `https://<your-domain>/manage/prompt-editor`)
+
+### Legacy module config UI (non-reactive)
 1) Set `Editing Source` = `Live`.
 2) Pick `Language` → `Category Folder` → `Template`.
 3) Click **Save** to load it into the editor.
