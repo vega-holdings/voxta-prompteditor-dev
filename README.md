@@ -8,15 +8,28 @@ Admin-only module that lets you:
 - Keep an **originals** backup before overwriting live prompts
 - Create/apply named **prompt collections** (swap prompt sets quickly)
 
+## Requirements
+- Voxta Server for Windows (tested with `Voxta.Server.Win.v1.2.0`)
+- Admin access in the Voxta UI
+
 ## Folder layout
 - Live prompts: `Voxta.Server.Win.v1.2.0/Resources/Prompts/Default/`
 - Module data: `Voxta.Server.Win.v1.2.0/Data/PromptEditor/`
   - Originals backup: `Data/PromptEditor/Originals/<lang>/...`
   - Collections: `Data/PromptEditor/Collections/<collection>/<lang>/...`
 
-## Usage (current flow)
-1) Pick language/category/template.
-2) Save to load the selected template into the editor.
-3) Edit, then save again to write changes to disk (live or collection depending on selection).
-4) Use the action buttons to create/apply/restore collections.
+## Usage
+### Editing Live prompts
+1) Set `Editing Source` = `Live`.
+2) Pick `Language` → `Category Folder` → `Template`.
+3) Click **Save** to load it into the editor.
+4) Edit and click **Save** again to write to disk.
 
+Note: if you change selection and click **Save**, PromptEditor saves the currently loaded template and then loads the newly-selected one. Avoid editing before loading a new selection.
+
+### Using collections (recommended)
+1) Click **Create Collection from Live** (set `New Collection Name`, **Save**, then click the button).
+2) Set `Editing Source` = `Collection` and select the collection.
+3) Edit templates inside the collection.
+4) Click **Apply Collection to Live (selected language)** when you want to switch Live prompts.
+5) Click **Restore Originals to Live (selected language)** to revert.
