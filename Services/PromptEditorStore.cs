@@ -292,7 +292,8 @@ public sealed class PromptEditorStore(ICommonFolders folders, ILogger<PromptEdit
 
             var relativePath = Path.Combine(destSegments);
 
-            if (!relativePath.EndsWith(".scriban", StringComparison.OrdinalIgnoreCase))
+            if (!relativePath.EndsWith(".scriban", StringComparison.OrdinalIgnoreCase)
+                && !relativePath.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -319,7 +320,7 @@ public sealed class PromptEditorStore(ICommonFolders folders, ILogger<PromptEdit
 
         if (importedFiles == 0)
         {
-            throw new InvalidOperationException("No .scriban files found in ZIP.");
+            throw new InvalidOperationException("No supported files found in ZIP.");
         }
 
         _logger.LogInformation(
