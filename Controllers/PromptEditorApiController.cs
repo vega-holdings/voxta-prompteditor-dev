@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Voxta.Modules.PromptEditor.Services;
@@ -159,11 +160,86 @@ public sealed class PromptEditorApiController(PromptEditorStore store, ILogger<P
         }
     }
 
+    [HttpGet("export")]
+    public async Task<IActionResult> ExportZip(
+        [FromQuery] string source = "live",
+        [FromQuery] string? collection = null,
+        [FromQuery] string language = "en",
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            source = _store.NormalizeSource(source);
+            var zip = await _store.ExportLanguageZipAsync(source, collection, language, cancellationToken);
+            return File(zip.ZipBytes, "application/zip", zip.FileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to export ZIP");
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPost("import")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<ActionResult<ImportZipResponse>> ImportZip(
+        [FromForm] ImportZipRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (request.File == null || request.File.Length <= 0)
+            {
+                return BadRequest("Missing ZIP file.");
+            }
+
+            if (request.File.Length > 50_000_000)
+            {
+                return BadRequest("ZIP is too large.");
+            }
+
+            var name = (request.Name ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = Path.GetFileNameWithoutExtension(request.File.FileName);
+            }
+
+            var language = (request.Language ?? "en").Trim();
+
+            await using var stream = request.File.OpenReadStream();
+            var result = await _store.ImportZipToCollectionAsync(
+                stream,
+                name,
+                language,
+                request.Overwrite,
+                cancellationToken);
+
+            return Ok(new ImportZipResponse(
+                true,
+                $"Imported {result.FilesImported} files into collection '{result.CollectionName}'.",
+                result.CollectionName,
+                result.Languages,
+                result.FilesImported));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to import ZIP");
+            return BadRequest(ex.Message);
+        }
+    }
+
     public sealed record ListResponse(IReadOnlyList<string> Items);
 
     public sealed record TemplateResponse(bool Exists, string Content);
 
     public sealed record ActionResponse(bool Ok, string Message, string? Value = null);
+
+    public sealed record ImportZipResponse(
+        bool Ok,
+        string Message,
+        string CollectionName,
+        IReadOnlyList<string> Languages,
+        int FilesImported);
 
     public sealed record SaveTemplateRequest(
         string? Source,
@@ -178,4 +254,10 @@ public sealed class PromptEditorApiController(PromptEditorStore store, ILogger<P
     public sealed record ApplyCollectionRequest(string? Name, string? Language);
 
     public sealed record RestoreOriginalsRequest(string? Language);
+
+    public sealed record ImportZipRequest(
+        IFormFile? File,
+        string? Name,
+        string? Language,
+        bool Overwrite);
 }

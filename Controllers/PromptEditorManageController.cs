@@ -140,9 +140,27 @@ public sealed class PromptEditorManageController : Controller
               color: var(--text);
               outline: none;
             }
+            input[type="file"] {
+              width: 100%;
+              padding: 10px 10px;
+              border-radius: 8px;
+              border: 1px solid var(--border);
+              background: rgba(11, 15, 20, 0.65);
+              color: var(--muted);
+              outline: none;
+            }
             select:focus, input[type="text"]:focus, textarea:focus {
               border-color: rgba(79, 140, 255, 0.55);
               box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.12);
+            }
+            label.chk {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              margin: 0;
+              color: var(--muted);
+              font-size: 12px;
+              line-height: 1;
             }
             textarea {
               width: 100%;
@@ -285,6 +303,24 @@ public sealed class PromptEditorManageController : Controller
                     </div>
                   </div>
         
+                  <div class="row row2">
+                    <div>
+                      <label>Export</label>
+                      <div class="actions">
+                        <button id="btnExportZip" class="ghost">Export ZIP (language)</button>
+                      </div>
+                    </div>
+                    <div>
+                      <label for="fileImportZip">Import ZIP → Collection</label>
+                      <div class="actions">
+                        <input id="fileImportZip" type="file" accept=".zip,application/zip" />
+                        <input id="txtImportCollection" type="text" placeholder="collection name (optional)" />
+                        <label class="chk"><input id="chkImportOverwrite" type="checkbox" />overwrite</label>
+                        <button id="btnImportZip" class="ghost">Import</button>
+                      </div>
+                    </div>
+                  </div>
+        
                   <textarea id="txtEditor" spellcheck="false" wrap="off"></textarea>
                   <div class="hint">
                     Tip: This is a plain editor (no template validation). Apply collections carefully — it overwrites the Live language folder after restoring the Originals backup.
@@ -311,6 +347,11 @@ public sealed class PromptEditorManageController : Controller
               btnCreate: document.getElementById('btnCreateCollection'),
               btnApply: document.getElementById('btnApplyCollection'),
               btnRestore: document.getElementById('btnRestoreOriginals'),
+              btnExportZip: document.getElementById('btnExportZip'),
+              importFile: document.getElementById('fileImportZip'),
+              importName: document.getElementById('txtImportCollection'),
+              importOverwrite: document.getElementById('chkImportOverwrite'),
+              btnImportZip: document.getElementById('btnImportZip'),
             };
         
             const stateKey = 'voxta.promptEditor.state.v1';
@@ -359,6 +400,98 @@ public sealed class PromptEditorManageController : Controller
               const ct = res.headers.get('content-type') || '';
               if (ct.includes('application/json')) return await res.json();
               return await res.text();
+            }
+
+            function parseContentDispositionFilename(header) {
+              if (!header) return '';
+              const m = /filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i.exec(header);
+              const raw = m ? (m[1] || m[2] || '') : '';
+              try { return decodeURIComponent(raw); } catch { return raw; }
+            }
+
+            async function exportZip() {
+              const s = currentSelection();
+              if (s.source === 'collection' && !s.collection) {
+                setStatus('Select a collection first.', 'err');
+                return;
+              }
+
+              const qs = new URLSearchParams({
+                source: s.source,
+                language: s.language || 'en',
+              });
+              if (s.collection) qs.set('collection', s.collection);
+
+              const res = await fetch(apiBase + '/export?' + qs.toString(), { credentials: 'same-origin' });
+              if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(txt || `${res.status} ${res.statusText}`);
+              }
+
+              const blob = await res.blob();
+              const cd = res.headers.get('content-disposition') || '';
+              const fileName = parseContentDispositionFilename(cd) || 'prompts.zip';
+
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = fileName;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+              setStatus(`Exported ${fileName}`, 'ok');
+            }
+
+            async function importZip() {
+              if (!guardUnsavedChanges()) {
+                return;
+              }
+
+              const file = els.importFile && els.importFile.files && els.importFile.files[0];
+              if (!file) {
+                setStatus('Pick a ZIP file first.', 'err');
+                return;
+              }
+
+              let name = (els.importName.value || '').trim();
+              if (!name) {
+                name = (file.name || '').replace(/\.zip$/i, '');
+              }
+
+              const fd = new FormData();
+              fd.append('file', file);
+              fd.append('name', name);
+              fd.append('language', els.language.value || 'en');
+              fd.append('overwrite', els.importOverwrite && els.importOverwrite.checked ? 'true' : 'false');
+
+              const res = await fetch(apiBase + '/import', {
+                method: 'POST',
+                credentials: 'same-origin',
+                body: fd,
+              });
+
+              if (!res.ok) {
+                const txt = await res.text();
+                throw new Error(txt || `${res.status} ${res.statusText}`);
+              }
+
+              const json = await res.json();
+              setStatus(json.message || 'Imported.', 'ok');
+
+              if (els.importFile) els.importFile.value = '';
+              els.importName.value = '';
+              if (els.importOverwrite) els.importOverwrite.checked = false;
+
+              state.source = 'collection';
+              state.collection = json.collectionName || name;
+              state.category = '';
+              state.template = '';
+              saveState();
+
+              dirty = false;
+              await refreshAll();
             }
         
             function fillSelect(sel, items, value, placeholder) {
@@ -421,6 +554,7 @@ public sealed class PromptEditorManageController : Controller
               const isCollection = els.source.value === 'collection';
               els.collection.disabled = !isCollection;
               els.btnApply.disabled = !isCollection || !els.collection.value;
+              els.btnExportZip.disabled = isCollection && !els.collection.value;
               els.btnCreate.disabled = false;
               updatePathLabel();
             }
@@ -647,6 +781,8 @@ public sealed class PromptEditorManageController : Controller
             els.btnCreate.addEventListener('click', () => createCollection().catch(e => setStatus(e.message || String(e), 'err')));
             els.btnApply.addEventListener('click', () => applyCollection().catch(e => setStatus(e.message || String(e), 'err')));
             els.btnRestore.addEventListener('click', () => restoreOriginals().catch(e => setStatus(e.message || String(e), 'err')));
+            els.btnExportZip.addEventListener('click', () => exportZip().catch(e => setStatus(e.message || String(e), 'err')));
+            els.btnImportZip.addEventListener('click', () => importZip().catch(e => setStatus(e.message || String(e), 'err')));
         
             document.addEventListener('keydown', (e) => {
               if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {

@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Voxta.Abstractions.Utils;
@@ -13,6 +14,10 @@ public sealed class PromptEditorStore(ICommonFolders folders, ILogger<PromptEdit
     private const string CollectionsFolderName = "Collections";
 
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    public sealed record ExportZipResult(string FileName, byte[] ZipBytes);
+
+    public sealed record ImportZipResult(string CollectionName, IReadOnlyList<string> Languages, int FilesImported);
 
     public string LiveRoot => folders.GetResourceFolder("Prompts", "Default");
     public string DataRoot => folders.GetDataFolder(DataFolderName);
@@ -114,6 +119,216 @@ public sealed class PromptEditorStore(ICommonFolders folders, ILogger<PromptEdit
 
         Directory.CreateDirectory(Path.GetDirectoryName(full) ?? root);
         await WriteFileTextIfChangedAsync(full, content, cancellationToken);
+    }
+
+    public async Task<ExportZipResult> ExportLanguageZipAsync(
+        string source,
+        string? collection,
+        string language,
+        CancellationToken cancellationToken)
+    {
+        source = NormalizeSource(source);
+        if (string.IsNullOrWhiteSpace(language))
+        {
+            throw new InvalidOperationException("Language is required.");
+        }
+
+        var root = ResolveRoot(source, collection);
+        var languageRoot = Path.Combine(root, language);
+        if (!Directory.Exists(languageRoot))
+        {
+            throw new DirectoryNotFoundException($"Language folder not found: {languageRoot}");
+        }
+
+        var safeCollection = source == "collection" ? SanitizeName(collection ?? string.Empty) : null;
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        var fileName = source == "collection"
+            ? $"PromptEditor_collection_{safeCollection}_{language}_{stamp}.zip"
+            : $"PromptEditor_live_{language}_{stamp}.zip";
+
+        await using var ms = new MemoryStream();
+        using (var archive = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            await AddManifestAsync(archive, source, safeCollection, [language], cancellationToken);
+
+            var files = Directory.GetFiles(languageRoot, "*", SearchOption.AllDirectories);
+            foreach (var file in files)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var rel = Path.GetRelativePath(languageRoot, file).Replace('\\', '/');
+                if (string.IsNullOrWhiteSpace(rel) || rel.EndsWith("/", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var entryPath = $"{language}/{rel}";
+                var entry = archive.CreateEntry(entryPath, CompressionLevel.Optimal);
+                await using var entryStream = entry.Open();
+                await using var fs = File.OpenRead(file);
+                await fs.CopyToAsync(entryStream, cancellationToken);
+            }
+        }
+
+        return new ExportZipResult(fileName, ms.ToArray());
+    }
+
+    public async Task<ImportZipResult> ImportZipToCollectionAsync(
+        Stream zipStream,
+        string collectionName,
+        string fallbackLanguage,
+        bool overwrite,
+        CancellationToken cancellationToken)
+    {
+        EnsureDataFolders();
+
+        if (zipStream == null)
+        {
+            throw new InvalidOperationException("Missing ZIP file.");
+        }
+
+        if (!zipStream.CanRead)
+        {
+            throw new InvalidOperationException("ZIP stream is not readable.");
+        }
+
+        if (string.IsNullOrWhiteSpace(collectionName))
+        {
+            throw new InvalidOperationException("Collection name is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(fallbackLanguage))
+        {
+            fallbackLanguage = "en";
+        }
+
+        var safeName = SanitizeName(collectionName);
+        var destRoot = Path.Combine(CollectionsRoot, safeName);
+        if (Directory.Exists(destRoot))
+        {
+            if (!overwrite)
+            {
+                throw new InvalidOperationException($"Collection already exists: {safeName}");
+            }
+
+            Directory.Delete(destRoot, recursive: true);
+        }
+        Directory.CreateDirectory(destRoot);
+
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true);
+        var fileEntries = archive.Entries
+            .Where(e => !string.IsNullOrEmpty(e.Name))
+            .Select(e => new ImportEntry(e, NormalizeZipPath(e.FullName)))
+            .Where(x => x.PathSegments.Length > 0)
+            .ToArray();
+
+        if (fileEntries.Length == 0)
+        {
+            throw new InvalidOperationException("ZIP contains no files.");
+        }
+
+        var knownLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "en",
+            fallbackLanguage,
+        };
+        foreach (var l in ListLanguages())
+        {
+            knownLanguages.Add(l);
+        }
+
+        var firstSegments = new HashSet<string>(fileEntries.Select(x => x.PathSegments[0]), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in fileEntries)
+        {
+            if (LooksLikeLanguageCode(entry.PathSegments[0]))
+            {
+                knownLanguages.Add(entry.PathSegments[0]);
+            }
+
+            if (entry.PathSegments.Length >= 2 && LooksLikeLanguageCode(entry.PathSegments[1]))
+            {
+                knownLanguages.Add(entry.PathSegments[1]);
+            }
+        }
+
+        var stripPrefix = false;
+        string? prefixToStrip = null;
+
+        if (firstSegments.Count == 1)
+        {
+            var prefix = firstSegments.First();
+            var allHaveSecondSegment = fileEntries.All(x => x.PathSegments.Length >= 2);
+            var allSecondAreLanguages = allHaveSecondSegment && fileEntries.All(x => knownLanguages.Contains(x.PathSegments[1]));
+            if (allSecondAreLanguages)
+            {
+                stripPrefix = true;
+                prefixToStrip = prefix;
+            }
+        }
+
+        var importedLanguages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var importedFiles = 0;
+
+        foreach (var item in fileEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var segments = item.PathSegments;
+            if (stripPrefix && prefixToStrip != null && segments.Length >= 2 && segments[0].Equals(prefixToStrip, StringComparison.OrdinalIgnoreCase))
+            {
+                segments = segments.Skip(1).ToArray();
+            }
+
+            if (segments.Length == 0)
+            {
+                continue;
+            }
+
+            var hasLanguagePrefix = knownLanguages.Contains(segments[0]);
+            var destSegments = hasLanguagePrefix
+                ? segments
+                : [fallbackLanguage, .. segments];
+
+            var relativePath = Path.Combine(destSegments);
+
+            if (!relativePath.EndsWith(".scriban", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var destPath = Path.GetFullPath(Path.Combine(destRoot, relativePath));
+            var destRootFull = Path.GetFullPath(destRoot);
+            if (!destRootFull.EndsWith(Path.DirectorySeparatorChar))
+            {
+                destRootFull += Path.DirectorySeparatorChar;
+            }
+            if (!destPath.StartsWith(destRootFull, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Invalid ZIP entry path: {item.Entry.FullName}");
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(destPath) ?? destRoot);
+            await using var entryStream = item.Entry.Open();
+            await using var outStream = File.Create(destPath);
+            await entryStream.CopyToAsync(outStream, cancellationToken);
+            importedFiles++;
+
+            importedLanguages.Add(destSegments[0]);
+        }
+
+        if (importedFiles == 0)
+        {
+            throw new InvalidOperationException("No .scriban files found in ZIP.");
+        }
+
+        _logger.LogInformation(
+            "Imported {Files} prompt files into collection '{Collection}' ({Languages})",
+            importedFiles,
+            safeName,
+            string.Join(", ", importedLanguages.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)));
+
+        return new ImportZipResult(safeName, importedLanguages.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToArray(), importedFiles);
     }
 
     public string CreateCollectionFromLive(string name, string language)
@@ -365,5 +580,99 @@ public sealed class PromptEditorStore(ICommonFolders folders, ILogger<PromptEdit
             Directory.CreateDirectory(Path.GetDirectoryName(dest) ?? destDir);
             File.Copy(file, dest, overwrite);
         }
+    }
+
+    private sealed record ImportEntry(ZipArchiveEntry Entry, string[] PathSegments);
+
+    private static string[] NormalizeZipPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return [];
+        }
+
+        var cleaned = path.Replace('\\', '/');
+        while (cleaned.StartsWith("./", StringComparison.Ordinal))
+        {
+            cleaned = cleaned[2..];
+        }
+
+        return cleaned
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => x != "." && x != "..")
+            .ToArray();
+    }
+
+    private static bool LooksLikeLanguageCode(string segment)
+    {
+        if (string.IsNullOrWhiteSpace(segment))
+        {
+            return false;
+        }
+
+        segment = segment.Trim().Replace('_', '-');
+        if (segment.Length < 2 || segment.Length > 16)
+        {
+            return false;
+        }
+
+        var parts = segment.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length is < 1 or > 2)
+        {
+            return false;
+        }
+
+        var primary = parts[0];
+        if (primary.Length is < 2 or > 3)
+        {
+            return false;
+        }
+        if (!primary.All(ch => ch is >= 'a' and <= 'z'))
+        {
+            return false;
+        }
+
+        if (parts.Length == 1)
+        {
+            return true;
+        }
+
+        var region = parts[1];
+        if (region.Length is < 2 or > 8)
+        {
+            return false;
+        }
+        if (!region.All(char.IsLetterOrDigit))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static async Task AddManifestAsync(
+        ZipArchive archive,
+        string source,
+        string? collection,
+        IReadOnlyList<string> languages,
+        CancellationToken cancellationToken)
+    {
+        var entry = archive.CreateEntry("prompteditor-manifest.json", CompressionLevel.Optimal);
+        await using var stream = entry.Open();
+
+        var json =
+            $$"""
+              {
+                "format": "voxta-prompteditor",
+                "version": 1,
+                "createdUtc": "{{DateTime.UtcNow:O}}",
+                "source": "{{source}}",
+                "collection": {{(collection == null ? "null" : $"\"{collection}\"")}},
+                "languages": [{{string.Join(", ", languages.Select(l => $"\"{l}\""))}}]
+              }
+              """;
+
+        var bytes = Utf8NoBom.GetBytes(json);
+        await stream.WriteAsync(bytes, cancellationToken);
     }
 }

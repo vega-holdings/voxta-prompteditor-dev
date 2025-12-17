@@ -37,6 +37,13 @@ Tip: the Voxta Modules page shows a green **Help** button on the PromptEditor mo
 2) Pick `Language` → `Category folder` → `Template`.
 3) Edit and click **Save** (or `Ctrl+S`).
 
+#### Import / Export (ZIP)
+- **Export ZIP (language):** downloads the selected source’s `/<lang>/...` folder as a ZIP (includes a small `prompteditor-manifest.json`).
+- **Import ZIP → Collection:** uploads a ZIP and extracts `.scriban` files into `Data/PromptEditor/Collections/<collection>/...`.
+  - If the ZIP includes a top-level language folder like `en/...`, it’s preserved.
+  - Otherwise it imports under the currently selected `Language` (fallback).
+  - Use **overwrite** to replace an existing collection.
+
 ### Module config UI (quick collection actions)
 The module configuration page no longer includes template editing. It only contains quick actions for creating/applying/restoring collections (language-scoped).
 
