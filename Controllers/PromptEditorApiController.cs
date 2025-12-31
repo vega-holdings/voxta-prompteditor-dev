@@ -1,7 +1,10 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Voxta.Modules.PromptEditor.Models;
 using Voxta.Modules.PromptEditor.Services;
 
 namespace Voxta.Modules.PromptEditor.Controllers;
@@ -9,9 +12,13 @@ namespace Voxta.Modules.PromptEditor.Controllers;
 [ApiController]
 [Authorize(Roles = "ADMIN")]
 [Route("api/extensions/prompt-editor")]
-public sealed class PromptEditorApiController(PromptEditorStore store, ILogger<PromptEditorApiController> logger) : ControllerBase
+public sealed class PromptEditorApiController(
+    PromptEditorStore store,
+    PresetStore presetStore,
+    ILogger<PromptEditorApiController> logger) : ControllerBase
 {
     private readonly PromptEditorStore _store = store;
+    private readonly PresetStore _presetStore = presetStore;
     private readonly ILogger<PromptEditorApiController> _logger = logger;
 
     [HttpGet("languages")]
@@ -228,6 +235,147 @@ public sealed class PromptEditorApiController(PromptEditorStore store, ILogger<P
         }
     }
 
+    // ============ Preset Endpoints ============
+
+    [HttpGet("presets")]
+    public ActionResult<ListResponse> GetPresets()
+    {
+        return Ok(new ListResponse(_presetStore.ListPresets()));
+    }
+
+    [HttpGet("presets/{name}")]
+    public async Task<ActionResult<SillyTavernPreset>> GetPreset(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var preset = await _presetStore.ReadPresetAsync(name, cancellationToken);
+            if (preset == null)
+            {
+                return NotFound($"Preset not found: {name}");
+            }
+            return Ok(preset);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read preset '{Name}'", name);
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPost("presets")]
+    public async Task<ActionResult<ActionResponse>> CreatePreset(
+        [FromBody] CreatePresetRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                return BadRequest("Preset name is required.");
+            }
+
+            // Check if exists
+            var existing = await _presetStore.ReadPresetAsync(request.Name, cancellationToken);
+            if (existing != null)
+            {
+                return BadRequest($"Preset already exists: {request.Name}");
+            }
+
+            await _presetStore.WritePresetAsync(request.Name, request.Data ?? new SillyTavernPreset(), cancellationToken);
+            return Ok(new ActionResponse(true, $"Created preset '{request.Name}'.", request.Name));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create preset");
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPut("presets/{name}")]
+    public async Task<ActionResult<ActionResponse>> UpdatePreset(
+        string name,
+        [FromBody] SillyTavernPreset preset,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _presetStore.WritePresetAsync(name, preset, cancellationToken);
+            return Ok(new ActionResponse(true, $"Saved preset '{name}'."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save preset '{Name}'", name);
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpDelete("presets/{name}")]
+    public ActionResult<ActionResponse> DeletePreset(string name)
+    {
+        try
+        {
+            _presetStore.DeletePreset(name);
+            return Ok(new ActionResponse(true, $"Deleted preset '{name}'."));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete preset '{Name}'", name);
+            return BadRequest(ex.Message);
+        }
+    }
+
+    [HttpPost("presets/{name}/convert")]
+    public async Task<ActionResult<ConvertPresetResponse>> ConvertPreset(
+        string name,
+        [FromBody] ConvertPresetRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var collection = request.Collection ?? $"preset-{name}";
+            var language = request.Language ?? "en";
+
+            var result = await _presetStore.ConvertToScribanAsync(name, collection, language, cancellationToken);
+
+            return Ok(new ConvertPresetResponse(
+                true,
+                $"Converted {result.Files.Count} files to collection '{result.CollectionName}'.",
+                result.Files));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to convert preset '{Name}'", name);
+            return BadRequest(ex.Message);
+        }
+    }
+
+    // ============ Sync Endpoints ============
+
+    [HttpGet("sync/status")]
+    public ActionResult<SyncStatusResponse> GetSyncStatus()
+    {
+        return Ok(new SyncStatusResponse(true, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), 0));
+    }
+
+    [HttpPost("sync/push")]
+    public ActionResult<ActionResponse> PushChanges([FromBody] JsonElement items)
+    {
+        // The PWA handles most sync logic client-side
+        // This endpoint confirms server is reachable
+        return Ok(new ActionResponse(true, "Push acknowledged."));
+    }
+
+    [HttpPost("sync/pull")]
+    public ActionResult<SyncPullResponse> PullChanges([FromQuery] long since = 0)
+    {
+        // Return empty - client should use individual endpoints to fetch data
+        return Ok(new SyncPullResponse([], []));
+    }
+
+    // ============ Record Types ============
+
     public sealed record ListResponse(IReadOnlyList<string> Items);
 
     public sealed record TemplateResponse(bool Exists, string Content);
@@ -242,22 +390,41 @@ public sealed class PromptEditorApiController(PromptEditorStore store, ILogger<P
         int FilesImported);
 
     public sealed record SaveTemplateRequest(
-        string? Source,
-        string? Collection,
-        string? Language,
-        string? Category,
-        string? TemplatePath,
-        string? Content);
+        [property: JsonPropertyName("source")] string? Source,
+        [property: JsonPropertyName("collection")] string? Collection,
+        [property: JsonPropertyName("language")] string? Language,
+        [property: JsonPropertyName("category")] string? Category,
+        [property: JsonPropertyName("templatePath")] string? TemplatePath,
+        [property: JsonPropertyName("content")] string? Content);
 
-    public sealed record CreateCollectionRequest(string? Name, string? Language);
+    public sealed record CreateCollectionRequest(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("language")] string? Language);
 
-    public sealed record ApplyCollectionRequest(string? Name, string? Language);
+    public sealed record ApplyCollectionRequest(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("language")] string? Language);
 
-    public sealed record RestoreOriginalsRequest(string? Language);
+    public sealed record RestoreOriginalsRequest(
+        [property: JsonPropertyName("language")] string? Language);
 
     public sealed record ImportZipRequest(
         IFormFile? File,
-        string? Name,
-        string? Language,
-        bool Overwrite);
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("language")] string? Language,
+        [property: JsonPropertyName("overwrite")] bool Overwrite);
+
+    public sealed record CreatePresetRequest(
+        [property: JsonPropertyName("name")] string? Name,
+        [property: JsonPropertyName("data")] SillyTavernPreset? Data);
+
+    public sealed record ConvertPresetRequest(
+        [property: JsonPropertyName("collection")] string? Collection,
+        [property: JsonPropertyName("language")] string? Language);
+
+    public sealed record ConvertPresetResponse(bool Ok, string Message, IReadOnlyList<string> Files);
+
+    public sealed record SyncStatusResponse(bool Online, long LastSync, int PendingCount);
+
+    public sealed record SyncPullResponse(object[] Templates, object[] Presets);
 }

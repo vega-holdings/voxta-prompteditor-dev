@@ -43,6 +43,8 @@ public class VoxtaModule : IVoxtaModule
         builder.AddChatAugmentationsService<PromptEditorChatAugmentationsService>(ServiceName);
 
         builder.Services.AddSingleton<PromptEditorStore>();
+        builder.Services.AddSingleton<PresetStore>();
+        builder.Services.AddSingleton<StaticFileServer>();
         builder.Services.AddControllers().PartManager.ApplicationParts.Add(new AssemblyPart(typeof(PromptEditorApiController).Assembly));
     }
 }
