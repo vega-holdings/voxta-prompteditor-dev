@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#4f8cff">
+  <title>Voxta Prompt Editor</title>
+  <link rel="stylesheet" href="css/app.css">
+  <style>
+    .loading-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0b0f14;
+      z-index: 9999;
+    }
+    .loading-screen.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="loadingScreen" class="loading-screen">
+    <div class="spinner"></div>
+  </div>
+
+  <div class="app">
+    <header>
+      <div class="header-row">
+        <div>
+          <h1>Voxta Prompt Editor</h1>
+          <div class="subtitle">Manage templates and SillyTavern presets</div>
+        </div>
+        <div class="header-status">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Checking...</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="active">Active Presets</button>
+        <button class="tab" data-tab="templates">Templates</button>
+        <button class="tab" data-tab="presets">JSON Presets</button>
+        <button class="tab" data-tab="converter">Converter</button>
+      </div>
+
+      <!-- Tab: Active Presets (manage converted presets) -->
+      <div id="active-panel" class="tab-panel active">
+        <div class="card">
+          <div class="card-header">
+            <div style="display:flex;align-items:center;gap:12px">
+              <h2>Active Preset Manager</h2>
+              <span class="pill" id="activePresetStatus">No preset loaded</span>
+            </div>
+            <div class="btn-group">
+              <select id="selActivePreset" style="min-width:200px"></select>
+              <button id="btnRefreshActivePreset" class="ghost">Refresh</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+              <div>
+                Prompts: <span id="activePromptTotal">0</span> total,
+                <span id="activePromptEnabled">0</span> enabled
+              </div>
+              <div class="btn-group">
+                <button id="btnEnableAll" class="ghost">Enable All</button>
+                <button id="btnDisableAll" class="ghost">Disable All</button>
+              </div>
+            </div>
+
+            <div class="search-box">
+              <input type="text" id="activePromptSearch" placeholder="Search prompts...">
+            </div>
+
+            <div class="prompt-list" id="activePromptList">
+              <div class="empty-state">
+                <h3>No Active Preset Selected</h3>
+                <p>Select a converted preset from the dropdown above, or convert one from the Converter tab.</p>
+              </div>
+            </div>
+
+            <div class="hint" style="margin-top:14px">
+              Toggle prompts on/off to control what's included in <code>Main.scriban</code>.
+              Click a prompt to expand and edit its content.
+            </div>
+          </div>
+        </div>
+
+        <!-- Template Injection -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Template Injection</h2>
+            <span class="pill" id="injectionStatus">Not injected</span>
+          </div>
+          <div class="card-body">
+            <p class="hint" style="margin-bottom:14px">
+              Auto-inject this preset into a Voxta template. The tool will automatically add the include statement.
+            </p>
+            <div class="grid grid-3">
+              <div class="field">
+                <label>Target Template</label>
+                <select id="selInjectionTemplate">
+                  <option value="TextGen/ChatInstructUserMessage.scriban">ChatInstructUserMessage (Recommended)</option>
+                  <option value="TextGen/ChatInstructSystemMessage.scriban">ChatInstructSystemMessage</option>
+                </select>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnAutoInject" class="primary" style="width:100%">Inject into Template</button>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnRemoveInjection" class="ghost danger" style="width:100%">Remove Injection</button>
+              </div>
+            </div>
+            <div class="grid grid-2" style="margin-top:14px">
+              <div class="field">
+                <label>Include Statement (for manual use)</label>
+                <input type="text" id="activeIncludeStatement" readonly value="(select a preset)" style="font-family:var(--mono)">
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnCopyInclude" class="ghost" style="width:100%">Copy to Clipboard</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Templates -->
+      <div id="templates-panel" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="pill">Scriban</span>
+              <h2 id="templatePath">(not loaded)</h2>
+            </div>
+            <div class="btn-group">
+              <button id="btnTemplateSave" title="Ctrl+S">Save</button>
+              <button id="btnTemplateReload" class="ghost">Reload</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="grid grid-4" style="margin-bottom:14px">
+              <div class="field">
+                <label for="selSource">Source</label>
+                <select id="selSource">
+                  <option value="live">Live</option>
+                  <option value="collection">Collection</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="selCollection">Collection</label>
+                <select id="selCollection" disabled></select>
+              </div>
+              <div class="field">
+                <label for="txtNewCollection">New Collection</label>
+                <input type="text" id="txtNewCollection" placeholder="MyPrompts-v1">
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnCreateCollection" class="ghost" style="width:100%">Create from Live</button>
+              </div>
+            </div>
+
+            <div class="grid grid-3" style="margin-bottom:14px">
+              <div class="field">
+                <label for="selLanguage">Language</label>
+                <select id="selLanguage"></select>
+              </div>
+              <div class="field">
+                <label for="selCategory">Category</label>
+                <select id="selCategory"></select>
+              </div>
+              <div class="field">
+                <label for="selTemplate">Template</label>
+                <select id="selTemplate"></select>
+              </div>
+            </div>
+
+            <div class="grid grid-2" style="margin-bottom:14px">
+              <div class="btn-group">
+                <button id="btnApplyCollection" class="danger">Apply to Live</button>
+                <button id="btnRestoreOriginals" class="ghost">Restore Originals</button>
+              </div>
+              <div class="status-box" id="templateStatus">Ready</div>
+            </div>
+
+            <div class="grid grid-3" style="margin-bottom:14px">
+              <div class="field">
+                <label for="selConvertedPreset">Insert Preset Include</label>
+                <select id="selConvertedPreset"></select>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnInsertInclude" class="ghost" style="width:100%">Insert at Cursor</button>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end">
+                <button id="btnRefreshConverted" class="ghost" style="width:100%">Refresh List</button>
+              </div>
+            </div>
+
+            <textarea id="templateEditor" class="code" spellcheck="false" wrap="off" placeholder="Select a template to edit..."></textarea>
+            <div class="hint">
+              Templates use Scriban syntax. Variables: <code>{{ char }}</code>, <code>{{ user }}</code>.
+              Includes: <code>{{ include 'TemplateName' }}</code>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Presets -->
+      <div id="presets-panel" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2>SillyTavern Presets</h2>
+            <div class="btn-group">
+              <select id="selPreset" style="min-width:200px"></select>
+              <button id="btnPresetSave">Save</button>
+              <button id="btnPresetExport" class="ghost">Export</button>
+              <button id="btnPresetImport" class="ghost">Import</button>
+              <button id="btnPresetDelete" class="ghost danger">Delete</button>
+              <input type="file" id="filePresetImport" accept=".json" style="display:none">
+            </div>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+              <div>
+                Prompts: <span id="presetPromptCount">0</span> total,
+                <span id="presetEnabledCount">0</span> enabled
+              </div>
+              <div class="btn-group">
+                <button id="btnAddPrompt" class="ghost">+ Add Prompt</button>
+              </div>
+            </div>
+
+            <div class="search-box">
+              <input type="text" id="promptSearch" placeholder="Search prompts...">
+            </div>
+
+            <div class="prompt-list" id="promptList">
+              <div class="empty-state">
+                <h3>No Preset Loaded</h3>
+                <p>Import a SillyTavern preset JSON file to get started.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2>Sampling Parameters</h2>
+            <button id="btnSaveSampling" class="ghost">Save</button>
+          </div>
+          <div class="card-body">
+            <div class="sampling-grid" id="samplingGrid"></div>
+          </div>
+        </div>
+
+        <!-- Prompt Editor Dialog -->
+        <div id="promptEditorDialog" class="card" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:600px;z-index:1000;box-shadow:0 10px 40px rgba(0,0,0,0.5)">
+          <div class="card-header">
+            <h2>Edit Prompt</h2>
+            <button id="btnClosePromptEditor" class="ghost">×</button>
+          </div>
+          <div class="card-body">
+            <div class="grid grid-2" style="margin-bottom:14px">
+              <div class="field">
+                <label for="editPromptName">Name</label>
+                <input type="text" id="editPromptName">
+              </div>
+              <div class="field">
+                <label for="editPromptRole">Role</label>
+                <select id="editPromptRole">
+                  <option value="system">System</option>
+                  <option value="assistant">Assistant</option>
+                  <option value="user">User</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label for="editPromptContent">Content</label>
+              <textarea id="editPromptContent" rows="12"></textarea>
+            </div>
+            <div class="btn-group" style="margin-top:14px">
+              <button id="btnSavePromptEdit" class="primary">Save</button>
+              <button id="btnClosePromptEditor2" class="ghost" onclick="document.getElementById('promptEditorDialog').style.display='none'">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Converter -->
+      <div id="converter-panel" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h2>Preset to Scriban Converter</h2>
+          </div>
+          <div class="card-body">
+            <p class="hint" style="margin-bottom:14px">
+              Convert SillyTavern presets into Scriban include files for Voxta templates.
+            </p>
+
+            <div class="grid grid-2" style="margin-bottom:14px">
+              <div class="field">
+                <label for="converterPreset">Source Preset</label>
+                <select id="converterPreset"></select>
+              </div>
+              <div class="field">
+                <label for="converterLanguage">Language</label>
+                <select id="converterLanguage">
+                  <option value="en">en</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-2" style="margin-bottom:14px">
+              <div class="field" style="display:flex;align-items:center;gap:10px;padding-top:20px">
+                <input type="checkbox" id="converterTargetLive" checked>
+                <label for="converterTargetLive" style="margin:0;cursor:pointer">
+                  <strong>Convert to Live</strong> - Files go directly to Voxta templates (recommended)
+                </label>
+              </div>
+              <div class="field">
+                <label>Output Path</label>
+                <input type="text" value="TextGen/Includes/Presets/[PresetName]/" readonly>
+              </div>
+            </div>
+
+            <div class="btn-group" style="margin-bottom:14px">
+              <button id="btnPreviewConversion" class="ghost">Preview</button>
+              <button id="btnConvert" class="primary" disabled>Convert & Save</button>
+            </div>
+
+            <div class="field">
+              <label>Preview</label>
+              <div class="preview-box" id="conversionPreview">
+                Select a preset and click "Preview" to see the conversion output.
+              </div>
+            </div>
+
+            <div class="hint" style="margin-top:14px">
+              After conversion, include in templates: <code>{{ include 'Presets/[name]/Main' }}</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

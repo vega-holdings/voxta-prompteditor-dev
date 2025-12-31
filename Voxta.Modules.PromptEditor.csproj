@@ -8,11 +8,16 @@
 
   <ItemGroup>
     <PackageReference Include="JetBrains.Annotations" Version="2025.2.4" />
-    <PackageReference Include="Voxta.Sdk.Modules" Version="1.1.4" />
+    <PackageReference Include="Voxta.Sdk.Modules" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Copy PWA public folder to output -->
+  <ItemGroup>
+    <None Include="public\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="public" />
   </ItemGroup>
 
 </Project>
